@@ -1,4 +1,4 @@
-# Fixed utils.py
+# utils.py
 
 import torch
 import torch.nn.functional as F
@@ -11,10 +11,10 @@ from io import BytesIO
 from models import EncoderCNN, DecoderRNN
 from huggingface_hub import hf_hub_download
 from yolo_ultra_utils import detect_objects_yolo_ultralytics
-
 from torchvision import transforms
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def download_file_from_hf(filename):
     try:
@@ -27,11 +27,15 @@ def download_file_from_hf(filename):
         print(f"Failed to download {filename}: {str(e)}")
         return None
 
+
 def load_baseline_model():
     checkpoint_path = download_file_from_hf("best_model.pth")
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    vocab = checkpoint['vocab']
+    flat_vocab = checkpoint['vocab']
+    idx2word = {idx: word for word, idx in flat_vocab.items()}
+    vocab = flat_vocab  # keep it simple and flat
+
     encoder = EncoderCNN(embed_size=512).to(device)
     decoder = DecoderRNN(embed_size=512, hidden_size=512, vocab_size=len(vocab)).to(device)
 
@@ -42,18 +46,20 @@ def load_baseline_model():
 
 
 def generate_baseline_caption(image_tensor, encoder, decoder, vocab, beam_size=3, max_len=20):
+    idx2word = {idx: word for word, idx in vocab.items()}
+    word2idx = vocab
+
     features = encoder(image_tensor)
-    encoder_out = features.unsqueeze(1)  # [B, 1, embed_size]
+    encoder_out = features.unsqueeze(1)
     encoder_dim = encoder_out.size(-1)
     num_pixels = encoder_out.size(1)
     encoder_out = encoder_out.expand(beam_size, num_pixels, encoder_dim)
 
-    seqs = torch.full((beam_size, 1), vocab['word2idx']['<start>'], dtype=torch.long, device=image_tensor.device)
+    seqs = torch.full((beam_size, 1), word2idx['<start>'], dtype=torch.long, device=image_tensor.device)
     top_k_scores = torch.zeros(beam_size, 1, device=image_tensor.device)
 
     complete_seqs = []
     complete_seqs_scores = []
-    complete_seqs_alphas = []
 
     h, c = decoder.init_hidden_state(encoder_out.mean(dim=1))
 
@@ -71,12 +77,12 @@ def generate_baseline_caption(image_tensor, encoder, decoder, vocab, beam_size=3
         else:
             top_k_scores, top_k_words = scores.view(-1).topk(beam_size, dim=0)
 
-        prev_seq_inds = top_k_words // len(vocab['idx2word'])
-        next_word_inds = top_k_words % len(vocab['idx2word'])
+        prev_seq_inds = top_k_words // len(vocab)
+        next_word_inds = top_k_words % len(vocab)
 
         seqs = torch.cat([seqs[prev_seq_inds], next_word_inds.unsqueeze(1)], dim=1)
 
-        incomplete_inds = [ind for ind, word in enumerate(next_word_inds) if word != vocab['word2idx']['<end>']]
+        incomplete_inds = [ind for ind, word in enumerate(next_word_inds) if word != word2idx['<end>']]
         complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
 
         if complete_inds:
@@ -99,8 +105,8 @@ def generate_baseline_caption(image_tensor, encoder, decoder, vocab, beam_size=3
     best_idx = np.argmax(complete_seqs_scores)
     caption_ids = complete_seqs[best_idx]
 
-    caption_words = [vocab['idx2word'][wid] for wid in caption_ids
-                     if vocab['idx2word'][wid] not in ['<start>', '<end>', '<pad>']]
+    caption_words = [idx2word[wid] for wid in caption_ids
+                     if idx2word[wid] not in ['<start>', '<end>', '<pad>']]
     confidence = min(float(np.exp(np.max(complete_seqs_scores))), 1.0)
 
     return {
@@ -108,6 +114,7 @@ def generate_baseline_caption(image_tensor, encoder, decoder, vocab, beam_size=3
         "confidence": confidence,
         "alphas": []
     }
+
 
 def enhance_with_openai(caption, max_tokens=100, temperature=0.7):
     try:
@@ -125,6 +132,7 @@ def enhance_with_openai(caption, max_tokens=100, temperature=0.7):
         print(f"OpenAI Error: {str(e)}")
         return None
 
+
 def load_image(image_source):
     try:
         if isinstance(image_source, str):
@@ -140,6 +148,7 @@ def load_image(image_source):
         print(f"Image load failed: {str(e)}")
         return None
 
+
 def preprocess_image(image, device='cpu'):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -147,6 +156,7 @@ def preprocess_image(image, device='cpu'):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     return transform(image).unsqueeze(0).to(device)
+
 
 def get_detected_objects(image_tensor, conf_thresh=0.5):
     try:
