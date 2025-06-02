@@ -18,14 +18,15 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def download_file_from_hf(filename):
     try:
-        return hf_hub_download(
+        path = hf_hub_download(
             repo_id="weakyy/image-captioning-baseline-model",
             filename=filename,
             repo_type="model"
         )
+        return path
     except Exception as e:
-        print(f"Failed to download {filename}: {str(e)}")
-        return None
+        raise FileNotFoundError(f"Failed to download {filename} from HuggingFace: {e}")
+
 
 def load_baseline_model():
     checkpoint_path = "best_model.pth"
