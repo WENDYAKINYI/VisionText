@@ -8,3 +8,5 @@ huggingface-hub>=0.19
 openai>=1.0
 pybase64>=1.3
 ultralytics>=8.0
+libgl1
+
