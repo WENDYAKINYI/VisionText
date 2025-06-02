@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import openai
 import numpy as np
 from PIL import Image
+import os
 import requests
 import pickle
 from io import BytesIO
@@ -16,49 +17,39 @@ from torchvision import transforms
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def download_file_from_hf(filename):
-    try:
-        path = hf_hub_download(
-            repo_id="weakyy/image-captioning-baseline-model",
-            filename=filename,
-            repo_type="model"
-        )
-        return path
-    except Exception as e:
-        raise FileNotFoundError(f"Failed to download {filename} from HuggingFace: {e}")
+import os
+import requests
 
+# New: Direct model download
+def download_model_from_url(url, save_path="best_model.pth"):
+    if not os.path.exists(save_path):
+        print(f"Downloading model from {url}...")
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            with open(save_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            print(f"Saved model to {save_path}")
+        else:
+            raise Exception(f"Failed to download model. Status code: {response.status_code}")
+    else:
+        print(f"Model already exists at {save_path}")
+    return save_path
 
+# Updated: Load baseline model from direct URL
 def load_baseline_model():
-    checkpoint_path = "best_model.pth"
-    checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
+    model_url = "https://huggingface.co/weakyy/image-captioning-baseline-model/resolve/main/best_model.pth"
+    checkpoint_path = download_model_from_url(model_url)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    # Load vocab safely
-    vocab = checkpoint.get('vocab', None)
-    vocab_size = len(vocab['word2idx']) if vocab and 'word2idx' in vocab else 0
+    vocab = checkpoint['vocab']
+    encoder = EncoderCNN(embed_size=512).to(device)
+    decoder = DecoderRNN(embed_size=512, hidden_size=512, vocab_size=len(vocab)).to(device)
 
-    # Determine correct embed size (e.g., 512 or 1024)
-    # You can override this manually if you know the architecture changed
-    try:
-        saved_embed_size = checkpoint['decoder']['embed.weight'].shape[1]
-    except:
-        saved_embed_size = 512  # Fallback default
-
-    # Initialize encoder
-    encoder = EncoderCNN(embed_size=saved_embed_size)
     encoder.load_state_dict(checkpoint['encoder'], strict=False)
-
-    # Initialize decoder with matching input
-    decoder = DecoderRNN(embed_size=saved_embed_size, hidden_size=512, vocab_size=vocab_size)
-
-    # Attempt to load decoder weights
-    try:
-        decoder.load_state_dict(checkpoint['decoder'], strict=False)
-    except RuntimeError as e:
-        import streamlit as st
-        st.warning(f"⚠️ Decoder weights not loaded due to architecture mismatch:\n{str(e)}\nUsing randomly initialized decoder instead.")
+    decoder.load_state_dict(checkpoint['decoder'], strict=False)
 
     return encoder, decoder, vocab
-
 
 
 def generate_baseline_caption(image_tensor, encoder, decoder, vocab, beam_size=3, max_len=20):
