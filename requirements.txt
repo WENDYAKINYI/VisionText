@@ -1,0 +1,10 @@
+streamlit>=1.28
+torch>=2.0
+torchvision>=0.15
+pillow>=10.0
+requests>=2.31
+numpy>=1.24
+huggingface-hub>=0.19
+openai>=1.0
+pybase64>=1.3
+ultralytics>=8.0
