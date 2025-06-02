@@ -27,10 +27,6 @@ def download_file_from_hf(filename):
         print(f"Failed to download {filename}: {str(e)}")
         return None
 
-
-import torch
-from .models import EncoderCNN, DecoderRNN
-
 def load_baseline_model():
     checkpoint_path = "best_model.pth"
     checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
