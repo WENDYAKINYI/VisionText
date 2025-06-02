@@ -75,7 +75,7 @@ with st.sidebar:
     st.write("Model Status:", 
         f"Encoder: {'Loaded' if encoder else 'Failed'}",
         f"Decoder: {'Loaded' if decoder else 'Failed'}",
-        f"Vocab Size: {len(vocab['word2idx']) if vocab else 0}"
+        f"Vocab Size: {len(vocab) if vocab else 0}"
     )
 
 # --- Image Upload or URL Input ---
