@@ -28,21 +28,40 @@ def download_file_from_hf(filename):
         return None
 
 
+import torch
+from .models import EncoderCNN, DecoderRNN
+
 def load_baseline_model():
-    checkpoint_path = download_file_from_hf("best_model.pth")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint_path = "best_model.pth"
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
 
-    flat_vocab = checkpoint['vocab']
-    idx2word = {idx: word for word, idx in flat_vocab.items()}
-    vocab = flat_vocab  # keep it simple and flat
+    # Load vocab safely
+    vocab = checkpoint.get('vocab', None)
+    vocab_size = len(vocab['word2idx']) if vocab and 'word2idx' in vocab else 0
 
-    encoder = EncoderCNN(embed_size=512).to(device)
-    decoder = DecoderRNN(embed_size=512, hidden_size=512, vocab_size=len(vocab)).to(device)
+    # Determine correct embed size (e.g., 512 or 1024)
+    # You can override this manually if you know the architecture changed
+    try:
+        saved_embed_size = checkpoint['decoder']['embed.weight'].shape[1]
+    except:
+        saved_embed_size = 512  # Fallback default
 
+    # Initialize encoder
+    encoder = EncoderCNN(embed_size=saved_embed_size)
     encoder.load_state_dict(checkpoint['encoder'], strict=False)
-    decoder.load_state_dict(checkpoint['decoder'], strict=False)
+
+    # Initialize decoder with matching input
+    decoder = DecoderRNN(embed_size=saved_embed_size, hidden_size=512, vocab_size=vocab_size)
+
+    # Attempt to load decoder weights
+    try:
+        decoder.load_state_dict(checkpoint['decoder'], strict=False)
+    except RuntimeError as e:
+        import streamlit as st
+        st.warning(f"⚠️ Decoder weights not loaded due to architecture mismatch:\n{str(e)}\nUsing randomly initialized decoder instead.")
 
     return encoder, decoder, vocab
+
 
 
 def generate_baseline_caption(image_tensor, encoder, decoder, vocab, beam_size=3, max_len=20):
